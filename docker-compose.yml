@@ -1,0 +1,22 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-local-root-password}
+      MARIADB_DATABASE: ${SALARY_DB_NAME:-acme_salary}
+      MARIADB_USER: ${SALARY_DB_USER:-salary_app}
+      MARIADB_PASSWORD: ${SALARY_DB_PASSWORD:-salary_local}
+    ports:
+      - "3306:3306"
+    volumes:
+      - salary_db_data:/var/lib/mysql
+      - ./infra/init-test-db.sql:/docker-entrypoint-initdb.d/01-test-db.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  salary_db_data:

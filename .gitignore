@@ -1,0 +1,11 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pylint.d/
+.pytest_cache/
+node_modules/
+dist/
+coverage/
+salary.db
