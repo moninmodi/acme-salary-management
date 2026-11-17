@@ -1,8 +1,8 @@
 """Testable aggregate insight functions used by the dashboard and Gemini tools."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 from statistics import median
 from typing import Any
 
@@ -49,11 +49,11 @@ _COMMON_FILTERS = {
 _TOOL_DECLARATIONS = [{
     "name": "get_summary",
     "description": "Get employee count and salary statistics grouped by currency.",
-    "parameters": {"type": "object", "properties": _COMMON_FILTERS},
+    "parameters_json_schema": {"type": "object", "properties": _COMMON_FILTERS},
 }, {
     "name": "get_breakdown",
     "description": "Get employee count and salary statistics by an allowed dimension. Salary results remain separated by currency.",
-    "parameters": {
+    "parameters_json_schema": {
         "type": "object",
         "properties": {**_COMMON_FILTERS, "by": {
             "type": "string", "enum": ["country", "department", "designation", "employment_status", "currency"],
@@ -63,7 +63,7 @@ _TOOL_DECLARATIONS = [{
 }, {
     "name": "get_outliers",
     "description": "Count salary outliers using the 1.5 times IQR rule separately within each currency.",
-    "parameters": {"type": "object", "properties": _COMMON_FILTERS},
+    "parameters_json_schema": {"type": "object", "properties": _COMMON_FILTERS},
 }]
 
 

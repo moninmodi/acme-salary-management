@@ -8,9 +8,9 @@ from typing import Literal
 import pymysql
 from fastapi import APIRouter, HTTPException, Query
 
+from backend.config import settings
 from backend.repositories import employees as employee_repository
 from backend.repositories import salaries as salary_repository
-from backend.config import settings
 from backend.schemas import (
     DashboardSummary,
     EmployeePage,
@@ -21,12 +21,12 @@ from backend.schemas import (
     SalaryRecordCreate,
     SalaryRecordCreated,
 )
-from backend.services.salaries import SalaryRecordError, SalaryService
 from backend.services.insights import (
     GeminiQuestionService,
     QuestionFeatureDisabled,
     QuestionRequestError,
 )
+from backend.services.salaries import SalaryRecordError, SalaryService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
