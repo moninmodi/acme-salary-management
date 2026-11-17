@@ -1,45 +1,70 @@
-# Salary Management System — Software Requirements
+# ACME Salary Management System — Requirements
 
-**Version:** 1.0 · **Status:** Approved baseline for the assessment build · **Primary user:** ACME HR Manager
+**Version:** 1.1 · **Status:** Implementation baseline · **Primary user:** ACME HR Manager
 
-## 1. Purpose and scope
+## 1. Goal
 
-Replace spreadsheet-based salary lookup and routine updates with a browser-based salary register for ACME's 10,000 employees across multiple countries. The system helps an HR manager find an employee, understand the distribution of current base salaries, and record a justified salary change. This assessment build is a local demonstration using fictional seeded records; it is not approved for real employee data.
+Replace spreadsheet-based salary administration with a web application for managing compensation records for 10,000 employees across countries and answering common questions about employee and salary distribution. The product should make routine HR work faster and less error-prone. All seeded employee information is synthetic.
 
-## 2. System boundary
+## 2. Scope and system boundary
 
-The system consists of a React web client, a Python HTTP API, and a relational database. It owns the employee directory fields, each employee's current base salary and currency, and an append-only salary-change history. The HR manager is the only user role in scope. Payroll execution, identity services, external HR systems, and exchange-rate services are outside the boundary.
+The application consists of a React client, a Python FastAPI service, and a MariaDB database. It manages employee directory details, employment status, each employee's current salary record, salary effective dates, and salary history. The HR Manager is the only user role in scope; the app demonstrates one organisation's workflow.
 
-## 3. Functional requirements
+### Employee management
 
-- **FR-1 Directory:** The user shall view employee name, employee code, email, country, department, job title, salary, and currency.
-- **FR-2 Find and filter:** The user shall search by name, employee code, or email and filter by country, department, and job title. Filters may be combined.
-- **FR-3 Navigate and sort:** The system shall return a bounded page of results (default 25, maximum 100), report the matching total, and support sorting by name, salary, country, or department.
-- **FR-4 Compensation insight:** The system shall show employee count and salary minimum, maximum, and average grouped by currency for the active filters. It shall not combine values from different currencies.
-- **FR-5 Change salary:** The user shall set a non-negative salary amount and provide a reason. The system shall reject malformed, unchanged, or out-of-range values with a useful error.
-- **FR-6 Audit:** A successful change shall update the current salary and append old amount, new amount, currency, reason, actor, and timestamp atomically. The user shall be able to view an employee's change history. Failed changes shall leave both current salary and history unchanged.
-- **FR-7 Seed:** A repeatable command shall initialize the schema and create 10,000 deterministic, fictional employees across multiple countries, departments, titles, and currencies. Re-running without a force option shall not duplicate records.
+- Browse employee records in a searchable, paginated directory; employment status is `Active` or `Inactive`.
+- Search by employee name or employee ID; filter by country, department, designation/job title, and employment status. Filters can be combined.
+- View individual employee details, including current salary, currency, effective date, and salary history.
 
-## 4. Data and business rules
+### Salary management
 
-Each employee has one current annual base salary in one ISO 4217 currency. Store amounts as integer minor units; display them as currency amounts. Each employee has a unique employee code and email. Search and filters operate on the server. Summary statistics use the same filters as the directory and group by currency. A salary update and its audit entry form one database transaction. Timestamps use UTC. The demonstration actor defaults to “HR Manager” because authentication is not in scope.
+- Create a new salary record for an employee and update compensation by appending a salary record with an effective date. Future-dated records are scheduled and do not replace the current salary before their effective date.
+- Keep amount and ISO currency code separate. Preserve prior amounts and effective dates in history.
+- Validate non-negative salary amounts, supported precision, required effective date, and required change reason. A successful current-record change and its history entry must be atomic.
 
-## 5. Quality requirements and constraints
+### Dashboard and reporting
 
-- **Performance:** Directory reads and summaries shall be computed in the database; the client shall never fetch all 10,000 rows for a normal page view.
-- **Reliability:** Invalid requests shall not partially update data. Seed and core tests shall be deterministic and easy to run locally.
-- **Usability:** The UI shall provide loading, empty, and error states; labeled controls; keyboard-accessible directory rows and salary editing; and clear validation feedback.
-- **Maintainability:** Use a small, documented React + Python + relational database architecture with automated tests for search/filtering, pagination/summary, validation, and audit behavior.
-- **Security boundary:** No authentication or authorization is implemented. Only fictional data is permitted in this demo; production use requires identity/access control and appropriate privacy/security review.
+- Show total employee count and employee distribution by country and department for the selected filters.
+- Show salary count, average, minimum, maximum, and compensation distribution grouped by currency. Do not combine currencies without an explicit conversion policy.
+- Apply country and department filters to reports; employee search, designation, status, and other active directory filters also constrain applicable summaries.
+- Make common HR questions answerable through the dashboard: how many employees are in each country/department, and what are the salary count, total payroll, average, minimum, and maximum for each currency in the selected population?
+- Provide a natural-language question box backed by Gemini 3 function calling. Gemini may select only validated, read-only insight functions; the backend computes results and returns aggregate data to Gemini for phrasing. Show the selected insight, applied filters, aggregate result table, and a way to open the same filtered view.
+- If no Gemini API key is configured, disable question answering with a clear setup message while keeping the directory, reports, and salary management available.
+
+### Data and quality
+
+- Provide a reproducible seeder for 10,000 realistic but fictional employees across multiple countries, departments, job titles, currencies, and employment statuses.
+- Apply search, filtering, sorting, aggregation, and pagination on the server. Default to 25 results per page; cap pages at 100.
+- Provide clear loading, empty, success, and error states. Keep API, business logic, and persistence responsibilities separated.
+- Include fast, deterministic unit and integration tests for directory queries, reports, salary validation/effective dates, and history preservation.
+- Document setup, architecture, assumptions, trade-offs, and a demo path.
+
+## 3. Business and data rules
+
+Each employee has one current active salary record at a time and one employment status (`Active` or `Inactive`). Salary values are stored as integer minor units with an ISO currency code. Every salary record has an effective date; a future record becomes current on that date while the previous record remains in history. Report totals and salary statistics are grouped by currency. All audit timestamps use UTC. Salary change records include old/new amounts and currencies, effective date, reason, actor, and change timestamp.
+
+Salary outliers use the 1.5×IQR rule independently within each currency. The question interface returns aggregate outlier counts and thresholds, not employee identities.
+
+## 4. Deliberately out of scope
+
+Payroll calculations, taxes, salary disbursement, bank/accounting/HR integrations, automated FX conversion, employee self-service, complex approval workflows, and predictive recommendations are excluded. They require rules, data sources, or personas that are not part of this single-organisation HR administration exercise. Authentication and production access controls are also not specified; use synthetic data only until identity, authorization, secrets, privacy, backups, and hosting requirements are agreed.
+
+## 5. Assumptions and constraints
+
+- Employee records are seeded synthetic data; each employee has one current salary record at a time.
+- Salary history is retained when a new record is created or made current.
+- “Designation” means job title in the data model and UI.
+- Currency conversion is unavailable; currency-specific reports are the only valid salary comparison.
+- Synthetic data has no city, job-level, or gender fields. City-based, level-based, and gender-pay-gap questions are out of scope.
+- Gemini never receives database access, generated SQL, or employee-level results. It can call only allowlisted aggregate insight functions. Employee search stays in the HR directory and does not pass employee records to the model.
+- Text-to-SQL is rejected because it can produce invalid or cross-currency calculations. Model-selected tool arguments are validated before the backend runs an insight function.
+- Production deployment and a recorded demo are delivery goals. A hosting target and credentials are not yet provided; deployment configuration and a local demo walkthrough will be prepared pending that environment.
 
 ## 6. Acceptance criteria
 
-1. A fresh setup can seed exactly 10,000 employees and launch the UI and API using documented commands.
-2. Search and combined filters return the correct matching page and total; paging and sorting work without transferring the full directory.
-3. Summary counts and salary statistics match the selected records and remain separated by currency.
-4. A valid salary change appears in the directory and history with its prior value, reason, actor, and timestamp; invalid or unchanged changes do not alter either.
-5. Automated tests cover the core behaviors above, and the repository includes setup instructions and design/trade-off notes.
-
-## 7. Explicit exclusions
-
-Payroll, tax, benefits, bonus calculations, and payment execution are excluded because jurisdiction-specific rules and integrations are unspecified. CSV import/export and migration are excluded to keep this build focused on safe record operations. Currency conversion and cross-currency totals are excluded because no rate source or valuation date policy is defined. Authentication, approval workflows, concurrent-edit resolution, hosted deployment, and a recorded demo require product, infrastructure, or identity decisions not provided in the assessment; the build will document the local demo path and deployment configuration needs.
+1. A fresh MariaDB setup can seed exactly 10,000 employees and run the API and UI using documented commands.
+2. Name/ID search, combined country/department/designation/status filters, sorting, and pagination return the correct result set and matching total without fetching the full directory.
+3. Dashboard employee distributions and currency-grouped salary statistics match the selected data; no cross-currency total is presented.
+4. A valid salary record with effective date and reason becomes current and is visible in history with its prior values; an invalid request leaves current salary and history unchanged.
+5. With a Gemini API key configured, a question can invoke a validated aggregate insight and return an explanation with the applied filters and supporting results. Without a key, the rest of the application remains usable and the question feature explains how to enable itself.
+6. Automated tests cover the core requirements, including fake-model function calls and argument validation. The app includes a deployable build and a recorded-demo walkthrough; hosted deployment follows once a target environment is available.
