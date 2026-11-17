@@ -1,48 +1,45 @@
-# Salary Management — Requirements
+# Salary Management System — Software Requirements
 
-## Goal
+**Version:** 1.0 · **Status:** Approved baseline for the assessment build · **Primary user:** ACME HR Manager
 
-Give ACME's HR manager one dependable place to maintain salary records for 10,000 employees across countries and answer common questions about compensation. The first release should make routine salary review and updates faster than working across spreadsheets while keeping changes traceable.
+## 1. Purpose and scope
 
-## User and primary workflows
+Replace spreadsheet-based salary lookup and routine updates with a browser-based salary register for ACME's 10,000 employees across multiple countries. The system helps an HR manager find an employee, understand the distribution of current base salaries, and record a justified salary change. This assessment build is a local demonstration using fictional seeded records; it is not approved for real employee data.
 
-The primary user is an authenticated HR manager. They can:
+## 2. System boundary
 
-1. Browse, search, sort, and paginate employee salary records.
-2. Filter by country, department, and job title, and inspect useful summary counts and salary statistics for the current view.
-3. Open an employee record and update salary details with validation.
-4. See a salary change history with who/when/reason information so edits are auditable.
+The system consists of a React web client, a Python HTTP API, and a relational database. It owns the employee directory fields, each employee's current base salary and currency, and an append-only salary-change history. The HR manager is the only user role in scope. Payroll execution, identity services, external HR systems, and exchange-rate services are outside the boundary.
 
-## Scope and features
+## 3. Functional requirements
 
-- A responsive React web UI backed by a Python API and relational database.
-- A reproducible seed command that creates 10,000 realistic, fictional employee records spanning multiple countries, currencies, departments, and roles.
-- Server-side filtering, sorting, aggregation, and pagination; the browser must not load all 10,000 rows at once.
-- Salary edits validated at the API boundary, with a required reason and an audit entry recorded in the same database transaction.
-- Clear loading, empty, validation, and failure states, plus accessible labels and keyboard-operable controls.
-- Automated tests for core API behavior, validation, audit history, filtering, and aggregation.
-- Setup, seed, test, and run instructions, with a short architecture and trade-off note.
+- **FR-1 Directory:** The user shall view employee name, employee code, email, country, department, job title, salary, and currency.
+- **FR-2 Find and filter:** The user shall search by name, employee code, or email and filter by country, department, and job title. Filters may be combined.
+- **FR-3 Navigate and sort:** The system shall return a bounded page of results (default 25, maximum 100), report the matching total, and support sorting by name, salary, country, or department.
+- **FR-4 Compensation insight:** The system shall show employee count and salary minimum, maximum, and average grouped by currency for the active filters. It shall not combine values from different currencies.
+- **FR-5 Change salary:** The user shall set a non-negative salary amount and provide a reason. The system shall reject malformed, unchanged, or out-of-range values with a useful error.
+- **FR-6 Audit:** A successful change shall update the current salary and append old amount, new amount, currency, reason, actor, and timestamp atomically. The user shall be able to view an employee's change history. Failed changes shall leave both current salary and history unchanged.
+- **FR-7 Seed:** A repeatable command shall initialize the schema and create 10,000 deterministic, fictional employees across multiple countries, departments, titles, and currencies. Re-running without a force option shall not duplicate records.
 
-## Deliberately out of scope for this release
+## 4. Data and business rules
 
-- **Payroll calculation, tax, benefits, bonuses, and payment execution:** these require jurisdiction-specific rules and integrations beyond a salary register.
-- **Authentication, authorization, and production identity integration:** the assessment has one HR persona and no identity-provider requirements. The app is a local demo and must not be presented as production-ready for sensitive real employee data.
-- **Bulk import/export and spreadsheet migration:** useful follow-up work, but it adds file validation and reconciliation concerns that would distract from proving the core record-management workflow.
-- **Multi-currency conversion or a global salary benchmark:** preserve each record's currency and compare/aggregate salaries only within a single currency. No FX source or conversion date policy is specified.
-- **Multi-user conflict resolution and approval workflows:** a single HR manager is the stated persona; optimistic concurrency and approvals can be added when business rules are known.
-- **Deployment and hosted video demo:** the brief asks for these deliverables, but no hosting account or deployment target is provided. Keep the app deployable with documented configuration; provide a local demo path and deployment instructions where feasible.
+Each employee has one current annual base salary in one ISO 4217 currency. Store amounts as integer minor units; display them as currency amounts. Each employee has a unique employee code and email. Search and filters operate on the server. Summary statistics use the same filters as the directory and group by currency. A salary update and its audit entry form one database transaction. Timestamps use UTC. The demonstration actor defaults to “HR Manager” because authentication is not in scope.
 
-## Product and engineering decisions
+## 5. Quality requirements and constraints
 
-- Store salary amounts as integer minor units (for example, cents) and store an ISO currency code with each employee. This avoids floating-point rounding and prevents misleading cross-currency totals.
-- Keep employee identity and current compensation in a normalized relational schema, with append-only salary history for auditability.
-- Use deterministic seeded data so screenshots and tests are repeatable.
-- Enforce filtering, pagination, and aggregates in the API/database to keep response sizes and query work bounded as the employee count grows.
-- Prefer a small, understandable architecture over distributed services for a 10,000-record assessment application.
+- **Performance:** Directory reads and summaries shall be computed in the database; the client shall never fetch all 10,000 rows for a normal page view.
+- **Reliability:** Invalid requests shall not partially update data. Seed and core tests shall be deterministic and easy to run locally.
+- **Usability:** The UI shall provide loading, empty, and error states; labeled controls; keyboard-accessible directory rows and salary editing; and clear validation feedback.
+- **Maintainability:** Use a small, documented React + Python + relational database architecture with automated tests for search/filtering, pagination/summary, validation, and audit behavior.
+- **Security boundary:** No authentication or authorization is implemented. Only fictional data is permitted in this demo; production use requires identity/access control and appropriate privacy/security review.
 
-## Open assumptions
+## 6. Acceptance criteria
 
-- Each employee has one current base salary and one currency at a time.
-- Salary history is retained indefinitely in the demo.
-- Country, department, and job title are descriptive fields, not access-control boundaries.
-- Production use would require authentication, authorization, secure hosting, backups, retention policy, and review of applicable privacy and employment requirements.
+1. A fresh setup can seed exactly 10,000 employees and launch the UI and API using documented commands.
+2. Search and combined filters return the correct matching page and total; paging and sorting work without transferring the full directory.
+3. Summary counts and salary statistics match the selected records and remain separated by currency.
+4. A valid salary change appears in the directory and history with its prior value, reason, actor, and timestamp; invalid or unchanged changes do not alter either.
+5. Automated tests cover the core behaviors above, and the repository includes setup instructions and design/trade-off notes.
+
+## 7. Explicit exclusions
+
+Payroll, tax, benefits, bonus calculations, and payment execution are excluded because jurisdiction-specific rules and integrations are unspecified. CSV import/export and migration are excluded to keep this build focused on safe record operations. Currency conversion and cross-currency totals are excluded because no rate source or valuation date policy is defined. Authentication, approval workflows, concurrent-edit resolution, hosted deployment, and a recorded demo require product, infrastructure, or identity decisions not provided in the assessment; the build will document the local demo path and deployment configuration needs.
