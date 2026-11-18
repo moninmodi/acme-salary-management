@@ -1,6 +1,6 @@
 # ACME Salary Management System — Requirements
 
-**Version:** 1.1 · **Status:** Implementation baseline · **Primary user:** ACME HR Manager
+**Version:** 1.2 · **Status:** Implemented · **Primary user:** ACME HR Manager
 
 ## 1. Goal
 
@@ -8,7 +8,7 @@ Replace spreadsheet-based salary administration with a web application for manag
 
 ## 2. Scope and system boundary
 
-The application consists of a React client, a Python FastAPI service, and a MariaDB database. It manages employee directory details, employment status, each employee's current salary record, salary effective dates, and salary history. The HR Manager is the only user role in scope; the app demonstrates one organisation's workflow.
+The application consists of a React + Ant Design client, a Python FastAPI service, and a MariaDB database, run together with Docker Compose. It manages employee directory details, employment status, each employee's current salary record, salary effective dates, and salary history. The HR Manager is the only user role in scope; the app demonstrates one organisation's workflow.
 
 ### Employee management
 
@@ -27,13 +27,14 @@ The application consists of a React client, a Python FastAPI service, and a Mari
 - Show total employee count and employee distribution by country and department for the selected filters.
 - Show salary count, average, minimum, maximum, and compensation distribution grouped by currency. Do not combine currencies without an explicit conversion policy.
 - Apply country and department filters to reports; employee search, designation, status, and other active directory filters also constrain applicable summaries.
+- Show how pay differs across the organisation: salary count, median, average, minimum, maximum, and payroll grouped by department, designation, country, or employment status, always kept separate per currency, plus aggregate 1.5×IQR outlier counts.
 - Make common HR questions answerable through the dashboard: how many employees are in each country/department, and what are the salary count, total payroll, average, minimum, and maximum for each currency in the selected population?
 - Provide a natural-language question box backed by Gemini 3 function calling. Gemini may select only validated, read-only insight functions; the backend computes results and returns aggregate data to Gemini for phrasing. Show the selected insight, applied filters, aggregate result table, and a way to open the same filtered view.
 - If no Gemini API key is configured, disable question answering with a clear setup message while keeping the directory, reports, and salary management available.
 
 ### Data and quality
 
-- Provide a reproducible seeder for 10,000 realistic but fictional employees across multiple countries, departments, job titles, currencies, and employment statuses.
+- Provide a reproducible seeder for 10,000 realistic but fictional employees across multiple countries, departments, job titles, currencies, and employment statuses. Pay must follow a plausible structure (designation and country market) and include salary history, so that reports show real differences.
 - Apply search, filtering, sorting, aggregation, and pagination on the server. Default to 25 results per page; cap pages at 100.
 - Provide clear loading, empty, success, and error states. Keep API, business logic, and persistence responsibilities separated.
 - Include fast, deterministic unit and integration tests for directory queries, reports, salary validation/effective dates, and history preservation.
@@ -62,9 +63,14 @@ Payroll calculations, taxes, salary disbursement, bank/accounting/HR integration
 
 ## 6. Acceptance criteria
 
-1. A fresh MariaDB setup can seed exactly 10,000 employees and run the API and UI using documented commands.
+1. A fresh machine with Docker can run the seeded application (exactly 10,000 employees) with one documented command, and the API and UI can also be run separately for development.
 2. Name/ID search, combined country/department/designation/status filters, sorting, and pagination return the correct result set and matching total without fetching the full directory.
 3. Dashboard employee distributions and currency-grouped salary statistics match the selected data; no cross-currency total is presented.
 4. A valid salary record with effective date and reason becomes current and is visible in history with its prior values; an invalid request leaves current salary and history unchanged.
 5. With a Gemini API key configured, a question can invoke a validated aggregate insight and return an explanation with the applied filters and supporting results. Without a key, the rest of the application remains usable and the question feature explains how to enable itself.
 6. Automated tests cover the core requirements, including fake-model function calls and argument validation. The app includes a deployable build and a recorded-demo walkthrough; hosted deployment follows once a target environment is available.
+
+
+## 7. Change log
+
+- **1.2:** Added the pay-breakdown and outlier reports to the dashboard scope (the same validated insights Gemini uses), a realistic seeded pay structure with history, the Ant Design UI, and one-command Docker delivery.

@@ -45,11 +45,17 @@ class EmployeePage(BaseModel):
     as_of: date
 
 
-class EmployeeDistribution(BaseModel):
-    """Employee count for a country or department category."""
+class CountryDistribution(BaseModel):
+    """Employee count for one country."""
 
-    country: str | None = None
-    department: str | None = None
+    country: str
+    employee_count: int
+
+
+class DepartmentDistribution(BaseModel):
+    """Employee count for one department."""
+
+    department: str
     employee_count: int
 
 
@@ -69,8 +75,8 @@ class DashboardSummary(BaseModel):
     """Employee distribution and currency-specific compensation summary."""
 
     total_employees: int
-    by_country: list[EmployeeDistribution]
-    by_department: list[EmployeeDistribution]
+    by_country: list[CountryDistribution]
+    by_department: list[DepartmentDistribution]
     salary_by_currency: list[CurrencySalarySummary]
 
 
@@ -106,6 +112,52 @@ class SalaryRecordCreated(BaseModel):
     changed_at: str
 
 
+BreakdownDimension = Literal["country", "department", "designation", "employment_status", "currency"]
+
+
+class BreakdownRow(BaseModel):
+    """Salary statistics for one group within one currency."""
+
+    group: str | None
+    currency: str
+    employee_count: int
+    payroll_minor: int
+    average_minor: float
+    median_minor: float
+    min_minor: int
+    max_minor: int
+
+
+class BreakdownReport(BaseModel):
+    """Currency-separated salary statistics grouped by one dimension."""
+
+    group_by: BreakdownDimension
+    filters: dict[str, str]
+    results: list[BreakdownRow]
+
+
+class OutlierSummary(BaseModel):
+    """1.5xIQR outlier fences and counts for one currency."""
+
+    currency: str
+    employee_count: int
+    q1_minor: float
+    q3_minor: float
+    lower_fence_minor: float
+    upper_fence_minor: float
+    lower_outlier_count: int
+    upper_outlier_count: int
+    outlier_count: int
+
+
+class OutlierReport(BaseModel):
+    """Aggregate outlier counts per currency; no employee identities."""
+
+    filters: dict[str, str]
+    iqr_multiplier: float
+    results: list[OutlierSummary]
+
+
 class QuestionRequest(BaseModel):
     """Plain-language HR question routed to validated insight functions."""
 
@@ -131,7 +183,7 @@ class GetSummaryArguments(InsightToolFilters):
 class GetBreakdownArguments(InsightToolFilters):
     """Validated argument schema for an insight grouped by one dimension."""
 
-    by: Literal["country", "department", "designation", "employment_status", "currency"]
+    by: BreakdownDimension
 
 
 class GetOutliersArguments(InsightToolFilters):

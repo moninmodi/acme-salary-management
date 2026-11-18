@@ -1,10 +1,12 @@
 """Testable aggregate insight functions used by the dashboard and Gemini tools."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 from statistics import median
 from typing import Any
+
+from google import genai
 
 from backend.repositories import employees as employee_repository
 from backend.schemas import GetBreakdownArguments, GetOutliersArguments, GetSummaryArguments
@@ -49,11 +51,14 @@ _COMMON_FILTERS = {
 _TOOL_DECLARATIONS = [{
     "name": "get_summary",
     "description": "Get employee count and salary statistics grouped by currency.",
-    "parameters": {"type": "object", "properties": _COMMON_FILTERS},
+    "parameters_json_schema": {"type": "object", "properties": _COMMON_FILTERS},
 }, {
     "name": "get_breakdown",
-    "description": "Get employee count and salary statistics by an allowed dimension. Salary results remain separated by currency.",
-    "parameters": {
+    "description": (
+        "Get employee count and salary statistics by an allowed dimension. "
+        "Salary results remain separated by currency."
+    ),
+    "parameters_json_schema": {
         "type": "object",
         "properties": {**_COMMON_FILTERS, "by": {
             "type": "string", "enum": ["country", "department", "designation", "employment_status", "currency"],
@@ -63,7 +68,7 @@ _TOOL_DECLARATIONS = [{
 }, {
     "name": "get_outliers",
     "description": "Count salary outliers using the 1.5 times IQR rule separately within each currency.",
-    "parameters": {"type": "object", "properties": _COMMON_FILTERS},
+    "parameters_json_schema": {"type": "object", "properties": _COMMON_FILTERS},
 }]
 
 
@@ -76,8 +81,6 @@ class GeminiQuestionService:
         self.insights = insight_service or InsightService()
         self.client = client
         if api_key and self.client is None:
-            from google import genai
-
             self.client = genai.Client(api_key=api_key)
         self.enabled = bool(api_key or client)
 
@@ -120,13 +123,10 @@ class GeminiQuestionService:
         try:
             if name == "get_summary":
                 result = self.insights.get_summary(values)
-                rows = result["salary_by_currency"]
             elif name == "get_breakdown":
                 result = self.insights.get_breakdown(group_by, values)
-                rows = result["results"]
             else:
                 result = self.insights.get_outliers(values)
-                rows = result["results"]
         except InsightArgumentError as exc:
             raise QuestionRequestError(str(exc)) from exc
         return result, values, group_by

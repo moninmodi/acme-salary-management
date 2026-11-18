@@ -1,6 +1,8 @@
 """Database queries for employee-directory and dashboard data."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 from backend.db import connect
 
 
@@ -152,6 +154,7 @@ def get_dashboard_summary(
         for sample_currency, salary_values in values_by_currency.items()
     }
     for row in by_currency:
+        _normalize_numeric(row)
         row["median_minor"] = median_by_currency.get(row["currency"])
     return {
         "total_employees": total,
@@ -202,6 +205,19 @@ def get_salary_values(*, group_by: str | None, filters: dict[str, str], as_of: s
             {group_select} FROM employees AS e {salary_join}{where}""",
             [*salary_values, *values],
         ).fetchall()
+
+
+def _normalize_numeric(row: dict) -> dict:
+    """Convert MariaDB ``DECIMAL`` aggregates to JSON-safe numbers in place.
+
+    PyMySQL returns ``SUM``/``AVG`` over integer columns as ``Decimal``. They must be plain
+    numbers before they are serialised for the API or sent to Gemini as verified data.
+    Averages keep their fraction; every other aggregate is a whole number of minor units.
+    """
+    for key, value in row.items():
+        if isinstance(value, Decimal):
+            row[key] = float(value) if key == "average_minor" else int(value)
+    return row
 
 
 def _median(values: list[int]) -> float:

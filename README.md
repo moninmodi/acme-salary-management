@@ -1,44 +1,121 @@
 # ACME Salary Management
 
-A salary register for an HR manager: browse 10,000 fictional employees, filter and search server-side, compare salary statistics within each currency, record auditable salary changes, and ask supported HR questions in natural language.
+A salary register for ACME's HR Manager. It replaces the salary spreadsheets for 10,000 employees in six countries. HR can browse and filter the directory, record auditable salary changes with an effective date, and answer **"how does ACME pay people?"** from a pay dashboard, or by asking a question in plain English, which Gemini answers using verified data.
 
-## Stack
+All employee data is synthetic.
 
-- React + Vite UI
-- Python + FastAPI API
-- MariaDB storage, accessed with PyMySQL
+| | |
+|---|---|
+| **UI** | React 19 · TypeScript · Ant Design 6 · TanStack Query · Recharts (Vite) |
+| **API** | Python 3.12 · FastAPI · Pydantic · PyMySQL |
+| **Database** | MariaDB 11 (InnoDB) |
+| **AI (optional)** | Gemini function calling (`google-genai`), restricted to read-only, validated aggregate insights |
+| **Runtime** | Docker Compose: `mariadb` → `api` → `web` (nginx serving the build and proxying `/api`) |
 
-The backend separates HTTP routes (`backend/api`), validated schemas (`backend/schemas.py`), salary business rules (`backend/services`), SQL queries (`backend/repositories`), and MariaDB configuration/session setup (`backend/config.py`, `backend/db.py`).
+## Quick start (Docker, one command)
 
-## Run locally
+```bash
+cp .env.example .env          # optional: add GEMINI_API_KEY to enable "Ask about compensation"
+docker compose up --build     # (or: make up) first run seeds 10,000 employees (~2 s)
+open http://localhost:8080
+```
 
-Requirements: Python 3.11+, Node.js 20+, npm, and Docker Compose.
+Stop with `docker compose down`. Add `-v` to also delete the database volume and re-seed on the next start.
 
-1. Copy `.env.example` to `.env` and adjust local connection settings if needed. Do not commit `.env` or use its demo credentials outside local development.
-2. Start the database: `docker compose up -d mariadb`. The local compose service creates `acme_salary` and a separate `acme_salary_test` database.
-3. Install Python dependencies: `python -m venv .venv`, activate the environment, then run `python -m pip install -r requirements.txt`.
-4. Seed fictional employee records: `python -m backend.seed` (creates 10,000 records by default; `python -m backend.seed --force` recreates them).
-5. Start the API: `uvicorn backend.main:app --reload`.
-6. In another terminal, install and start the UI: `npm install`, then `npm run dev`. Open the local URL printed by Vite. Vite forwards `/api` requests to FastAPI on port 8000.
+## What the HR Manager can do
 
-To connect to another MariaDB instance, set `SALARY_DB_HOST`, `SALARY_DB_PORT`, `SALARY_DB_USER`, `SALARY_DB_PASSWORD`, and `SALARY_DB_NAME` before starting the API or seed command. Do not use the compose credentials outside a local demo.
+- **Pay overview** (`/overview`)
+  - Ask a question in plain English. The answer shows which insight, filters and figures produced it.
+  - See headcount KPIs.
+  - Compare median, average and range of pay by department, designation, country or status, one currency at a time.
+  - See payroll per currency.
+  - Click a country or department to drill into it.
+  - See 1.5×IQR salary outlier counts.
+- **Employees** (`/employees`)
+  - Server-side paginated directory of 10,000 people.
+  - Debounced search by name, email or ID, plus combined filters.
+  - Sort by name, country or department. Salary sorting is enabled once a country is selected, because amounts in different currencies aren't comparable.
+- **Employee drawer**
+  - Profile and current pay.
+  - New salary record: an amount, a currency, a reason (required) and an effective date. A record dated today becomes current immediately; a future date schedules it.
+  - The form shows the percentage change live and warns on large changes.
+  - The full history is shown as a timeline of current, past and scheduled records.
+- Filters, sorting, paging and the open employee are all kept in the URL, so any view can be bookmarked or shared.
 
-## Ask a question
+## Local development (without Docker for the app)
 
-Natural-language questions are optional. Set `GEMINI_API_KEY` in the local `.env` file to enable the Gemini 3 function-calling flow; without a key the UI disables the question input while all other features remain available. Gemini receives the HR question and computed aggregate results only. It cannot access the database or employee-level records, and the backend validates every requested insight before running it. Never commit a real API key.
+Requirements: Python 3.11+, Node 20+, Docker (for MariaDB).
 
-## Tests
+```bash
+cp .env.example .env
+docker compose up -d mariadb                       # also creates the acme_salary_test schema
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m backend.seed                             # --force to re-create, --count N to change size
+uvicorn backend.main:app --reload                  # http://localhost:8000/docs
+npm install && npm run dev                         # http://localhost:5173 (proxies /api to :8000)
+```
 
-The API tests use `acme_salary_test` by default and clear its application tables before each test. Start the compose database first, then run `python -m unittest discover -s tests -v`. Set `SALARY_TEST_DB_NAME` to another disposable schema if needed. Do not point tests at real employee data.
+## Quality checks
 
-Install development tools with `python -m pip install -r requirements-dev.txt`. Run `python scripts/lint_python.py` to print the Pylint score and enforce the configured 8.0 minimum.
+| Check | Command | Status |
+|---|---|---|
+| Backend unit tests (no DB, no network) | `python -m unittest discover -s tests/unit -t .` | 40 tests, ~0.6 s |
+| Backend integration tests (MariaDB) | `python -m unittest discover -s tests -t .` | 56 tests in total; skipped with a message if MariaDB is down |
+| Pylint (docstrings and style), fails below 10.00 | `python scripts/lint_python.py` | **10.00/10** |
+| Frontend tests (Vitest + Testing Library) | `npm test` | 36 tests |
+| TypeScript (strict) | `npm run typecheck` | clean |
+| ESLint (typescript-eslint, react-hooks) | `npm run lint` | 0 warnings |
+| Production build | `npm run build` | ok |
 
-## Build and API
+Integration tests use the disposable `acme_salary_test` schema (override with `SALARY_TEST_DB_NAME`) and wipe its tables before each test. Never point them at real data.
 
-- UI production build: `npm run build` (output in `dist/`).
-- API health endpoint: `GET /api/health`.
-- Interactive API schema: `GET /docs`.
+## Ask a question (Gemini)
 
-The UI and API can be deployed separately by serving `dist/`, configuring the reverse proxy to route `/api` to FastAPI, and setting the `SALARY_DB_*` variables. A production deployment also needs authentication, authorization, managed secrets, TLS, backups, monitoring, and a reviewed employee-data policy; those are deliberately outside this assessment demo.
+Set `GEMINI_API_KEY` in `.env` and restart the API (`docker compose up -d api`). The default model is `gemini-3.8-flash`; change it with `GEMINI_MODEL`.
 
-See [the requirements document](docs/requirements.md) and [architecture and trade-offs](docs/architecture.md).
+1. Gemini receives the question and must call exactly one of three tools: `get_summary`, `get_breakdown` or `get_outliers`. Automatic execution is disabled.
+2. The backend validates the tool name and arguments with Pydantic, and checks filter values against the real directory, before running the tested insight function.
+3. Gemini then phrases an answer from that aggregate result only. It never receives SQL, database access or employee-level records.
+4. The UI shows the answer next to the insight, filters and figures behind it, so HR can verify it.
+
+Without a key the panel explains how to enable it, and everything else keeps working.
+
+## API
+
+Interactive docs are at `/docs` (`http://localhost:8000/docs` in local development). Main endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/employees` | Search, filter, sort and page the directory (≤100 per page) |
+| GET | `/api/employees/{id}` · `/history` | Employee with current pay · salary history |
+| POST | `/api/employees/{id}/salaries` | Append a current or scheduled salary record |
+| GET | `/api/summary` | Headcount distributions and per-currency salary statistics |
+| GET | `/api/insights/breakdown?by=` | Pay statistics by department, designation, country, status or currency |
+| GET | `/api/insights/outliers` | 1.5×IQR outlier counts per currency |
+| GET | `/api/options` · `/api/features` | Filter values · whether Gemini is enabled |
+| POST | `/api/questions` | Natural-language question to a verified insight |
+
+## Project layout
+
+```
+backend/            FastAPI app: api/ (HTTP) → services/ (rules) → repositories/ (SQL) → db.py
+  seed.py           deterministic generator (pure) + idempotent loader
+tests/unit/         fast tests with fakes for the DB and Gemini
+tests/integration/  API tests against the MariaDB test schema
+src/                React + TypeScript UI: api/ (typed client, query hooks), pages/, components/, lib/
+docker/             Dockerfiles, nginx config, API entrypoint
+docs/               requirements, architecture, AI usage, performance, demo script
+```
+
+## Documentation
+
+- [Requirements](docs/requirements.md): goal, scope, what's deliberately left out and why
+- [Architecture and trade-offs](docs/architecture.md)
+- [AI-assisted workflow and prompts](docs/ai-usage.md)
+- [Performance notes](docs/performance.md)
+- [Demo script](docs/demo-script.md): a walkthrough for the recorded video
+
+## Production notes
+
+This is an assessment demo. A real deployment would also need SSO/RBAC, managed secrets, TLS, backups, monitoring, audit-log retention and an agreed employee-data policy. These are listed as out of scope in the requirements.

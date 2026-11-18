@@ -8,29 +8,35 @@ from typing import Literal
 import pymysql
 from fastapi import APIRouter, HTTPException, Query
 
+from backend.config import settings
 from backend.repositories import employees as employee_repository
 from backend.repositories import salaries as salary_repository
-from backend.config import settings
 from backend.schemas import (
+    BreakdownDimension,
+    BreakdownReport,
     DashboardSummary,
     EmployeePage,
     EmployeeRecord,
+    OutlierReport,
     QuestionRequest,
     QuestionResponse,
     SalaryHistory,
     SalaryRecordCreate,
     SalaryRecordCreated,
 )
-from backend.services.salaries import SalaryRecordError, SalaryService
 from backend.services.insights import (
     GeminiQuestionService,
+    InsightArgumentError,
+    InsightService,
     QuestionFeatureDisabled,
     QuestionRequestError,
 )
+from backend.services.salaries import SalaryRecordError, SalaryService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 salary_service = SalaryService()
+insight_service = InsightService()
 question_service = GeminiQuestionService(
     api_key=settings.gemini_api_key,
     model=settings.gemini_model,
@@ -92,6 +98,41 @@ def get_summary(
         job_title=job_title, employment_status=employment_status, as_of=_today_utc(),
     )
     return DashboardSummary(**report)
+
+
+def _insight_filters(
+    country: str = "", department: str = "", job_title: str = "", employment_status: str = "", currency: str = "",
+) -> dict[str, str]:
+    """Collect the optional insight filters shared by the reporting endpoints."""
+    return {
+        "country": country, "department": department, "job_title": job_title,
+        "employment_status": employment_status, "currency": currency,
+    }
+
+
+@router.get("/insights/breakdown", response_model=BreakdownReport)
+def get_breakdown(
+    by: BreakdownDimension = "department",
+    country: str = "", department: str = "", job_title: str = "", employment_status: str = "", currency: str = "",
+) -> BreakdownReport:
+    """Return salary statistics per group, kept separate for each currency."""
+    filters = _insight_filters(country, department, job_title, employment_status, currency)
+    try:
+        return BreakdownReport(**insight_service.get_breakdown(by, filters))
+    except InsightArgumentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/insights/outliers", response_model=OutlierReport)
+def get_outliers(
+    country: str = "", department: str = "", job_title: str = "", employment_status: str = "", currency: str = "",
+) -> OutlierReport:
+    """Return 1.5xIQR salary outlier counts per currency for the filtered population."""
+    filters = _insight_filters(country, department, job_title, employment_status, currency)
+    try:
+        return OutlierReport(**insight_service.get_outliers(filters))
+    except InsightArgumentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/employees/{employee_id}", response_model=EmployeeRecord)

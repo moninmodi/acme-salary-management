@@ -17,6 +17,7 @@ def main() -> int:
         "--score=y",
         "backend",
         "tests",
+        "scripts",
     ]
     return subprocess.run(command, cwd=project_root, check=False).returncode
 

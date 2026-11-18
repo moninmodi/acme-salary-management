@@ -1,48 +1,34 @@
-"""Integration tests against the disposable MariaDB test schema."""
+"""Integration tests against the disposable MariaDB test schema.
+
+Run ``docker compose up -d mariadb`` first. The whole module is skipped (not failed) when the
+test database is unreachable, so ``python -m unittest`` still runs the unit suite anywhere.
+"""
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 from unittest.mock import patch
 
+import pymysql
 from fastapi.testclient import TestClient
 
-from backend.db import DB_CONFIG, connect, initialize
+from backend.db import DB_CONFIG, DatabaseSession, connect, initialize
 from backend.main import app
 from backend.seed import seed
 from backend.services.insights import GeminiQuestionService, InsightService
-
-
-class FakeGeminiClient:
-    """Return deterministic model responses without network access."""
-
-    def __init__(self, *responses):
-        """Store the ordered first-pass tool call and final phrasing responses."""
-        self.responses = list(responses)
-        self.models = self
-
-    def generate_content(self, **_kwargs):
-        """Return the next queued response for a service request."""
-        return self.responses.pop(0)
-
-
-def model_tool_call(name, args):
-    """Build a small SDK-shaped tool call response for service tests."""
-    call = SimpleNamespace(name=name, args=args)
-    part = SimpleNamespace(function_call=call)
-    content = SimpleNamespace(parts=[part])
-    candidate = SimpleNamespace(content=content)
-    return SimpleNamespace(candidates=[candidate])
-
-
-def model_text(text):
-    """Build a small SDK-shaped final text response for service tests."""
-    return SimpleNamespace(text=text)
+from tests.fakes import FakeGeminiClient, model_text, model_tool_call
 
 
 def test_database_config():
     """Return connection settings for the isolated test database."""
     return {**DB_CONFIG, "database": os.getenv("SALARY_TEST_DB_NAME", "acme_salary_test")}
+
+
+def setUpModule():  # pylint: disable=invalid-name
+    """Skip this module with a clear reason when the MariaDB test schema is unavailable."""
+    try:
+        DatabaseSession(test_database_config()).connection.close()
+    except pymysql.MySQLError as exc:
+        raise unittest.SkipTest(f"MariaDB test database unavailable ({exc}); run `docker compose up -d mariadb`")
 
 
 def clear_test_database():
@@ -54,15 +40,14 @@ def clear_test_database():
     initialize()
 
 
-class SalaryApiTests(unittest.TestCase):
-    """Exercise employee APIs and effective-dated salary behavior."""
+class ApiTestCase(unittest.TestCase):
+    """Base fixture: a three-employee dataset in the disposable schema and a test client."""
 
     def setUp(self):
         """Create a small, deterministic dataset for one API test."""
         self.db_config_patch = patch("backend.db.DB_CONFIG", test_database_config())
         self.db_config_patch.start()
         clear_test_database()
-        today = datetime.now(timezone.utc).date().isoformat()
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with connect() as db:
             db.executemany("""INSERT INTO employees
@@ -80,13 +65,12 @@ class SalaryApiTests(unittest.TestCase):
                 VALUES (?, NULL, NULL, ?, ?, '2025-01-01', 'Initial salary record', 'System', ?)""", [
                 (1, 8_500_000, "INR", now), (2, 9_500_000, "INR", now), (3, 12_000_000, "USD", now),
             ])
-        self.client = TestClient(app)
-        self.client.__enter__()
+        self.addCleanup(self.db_config_patch.stop)
+        self.client = self.enterContext(TestClient(app))
 
-    def tearDown(self):
-        """Close the test client and restore the application's database config."""
-        self.client.__exit__(None, None, None)
-        self.db_config_patch.stop()
+
+class SalaryApiTests(ApiTestCase):
+    """Exercise employee APIs and effective-dated salary behavior."""
 
     def test_search_combined_filters_status_sort_and_bounded_pagination(self):
         """Verify combined filters return the correct result and page limit."""
@@ -241,23 +225,37 @@ class SalaryApiTests(unittest.TestCase):
         self.assertTrue(response.json()["natural_language_questions"])
 
 
-class InsightUnitTests(unittest.TestCase):
-    """Verify insight calculations with small deterministic salary cohorts."""
+class ReportingApiTests(ApiTestCase):
+    """Exercise the pay-insight endpoints used by the dashboard."""
 
-    def test_salary_outliers_use_iqr_fences_within_currency(self):
-        """Use the 1.5×IQR rule and report outlier counts per currency group."""
-        options = {
-            "countries": [], "departments": [], "job_titles": [],
-            "employment_statuses": ["Active", "Inactive"], "currencies": ["INR"],
-        }
-        samples = [{"currency": "INR", "salary_minor": amount} for amount in
-                   [10, 12, 14, 16, 18, 20, 22, 24, 100]]
-        with patch("backend.services.insights.employee_repository.get_filter_options", return_value=options), \
-             patch("backend.services.insights.employee_repository.get_salary_values", return_value=samples):
-            result = InsightService(today_provider=lambda: "2026-01-01").get_outliers()
-        self.assertEqual(result["iqr_multiplier"], 1.5)
-        self.assertEqual(result["results"][0]["upper_outlier_count"], 1)
-        self.assertEqual(result["results"][0]["lower_outlier_count"], 0)
+    def test_breakdown_groups_by_dimension_without_mixing_currencies(self):
+        """Group by department and keep INR and USD statistics in separate rows."""
+        response = self.client.get("/api/insights/breakdown", params={"by": "department"})
+        self.assertEqual(response.status_code, 200)
+        rows = {(row["group"], row["currency"]): row for row in response.json()["results"]}
+        self.assertEqual(set(rows), {("Design", "INR"), ("Engineering", "INR"), ("Engineering", "USD")})
+        self.assertEqual(rows[("Engineering", "USD")]["median_minor"], 12_000_000)
+
+    def test_breakdown_filters_are_case_insensitive_and_validated(self):
+        """Match known filter values case-insensitively and reject unknown ones with 422."""
+        ok = self.client.get("/api/insights/breakdown", params={"by": "country", "country": "india"})
+        self.assertEqual(ok.json()["filters"], {"country": "India"})
+        unknown = self.client.get("/api/insights/breakdown", params={"by": "country", "country": "Mars"})
+        self.assertEqual(unknown.status_code, 422)
+        bad_dimension = self.client.get("/api/insights/breakdown", params={"by": "salary"})
+        self.assertEqual(bad_dimension.status_code, 422)
+
+    def test_outliers_report_counts_per_currency(self):
+        """Return aggregate outlier fences and counts, one row per currency."""
+        response = self.client.get("/api/insights/outliers")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["currency"] for row in response.json()["results"]], ["INR", "USD"])
+
+    def test_options_list_filter_values(self):
+        """Expose the distinct directory values that populate the UI filters."""
+        options = self.client.get("/api/options").json()
+        self.assertEqual(options["countries"], ["India", "United States"])
+        self.assertEqual(options["currencies"], ["INR", "USD"])
 
 
 class SeedTests(unittest.TestCase):
@@ -279,6 +277,14 @@ class SeedTests(unittest.TestCase):
                 ).fetchone()["total"]
                 self.assertEqual(currencies, 6)
                 self.assertEqual(statuses, 2)
+                mismatched = db.execute(
+                    """SELECT COUNT(*) AS total FROM salary_records AS later
+                    JOIN salary_records AS earlier ON earlier.employee_id = later.employee_id
+                    AND earlier.effective_date = (SELECT MAX(s.effective_date) FROM salary_records AS s
+                        WHERE s.employee_id = later.employee_id AND s.effective_date < later.effective_date)
+                    WHERE later.previous_salary_minor <> earlier.new_salary_minor"""
+                ).fetchone()["total"]
+                self.assertEqual(mismatched, 0, "each record's previous salary must equal the prior record")
 
 
 if __name__ == "__main__":

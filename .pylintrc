@@ -1,9 +1,13 @@
 [MAIN]
-fail-under=8.0
+fail-under=10.0
 jobs=1
 
 [MESSAGES CONTROL]
 disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-few-public-methods
+
+[DESIGN]
+# Settings and seed reference records are flat data holders.
+max-attributes=12
 
 [FORMAT]
 max-line-length=120

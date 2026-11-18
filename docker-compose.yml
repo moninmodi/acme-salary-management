@@ -1,3 +1,5 @@
+# One command runs the whole stack:  docker compose up --build   →  http://localhost:8080
+# Optional: put GEMINI_API_KEY in .env (copied from .env.example) to enable "Ask a question".
 services:
   mariadb:
     image: mariadb:11.4
@@ -8,7 +10,7 @@ services:
       MARIADB_USER: ${SALARY_DB_USER:-salary_app}
       MARIADB_PASSWORD: ${SALARY_DB_PASSWORD:-salary_local}
     ports:
-      - "3306:3306"
+      - "${MARIADB_PORT:-3306}:3306"  # exposed for local dev and integration tests
     volumes:
       - salary_db_data:/var/lib/mysql
       - ./infra/init-test-db.sql:/docker-entrypoint-initdb.d/01-test-db.sql:ro
@@ -17,6 +19,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SALARY_DB_HOST: mariadb
+      SALARY_DB_PORT: "3306"
+      SALARY_DB_USER: ${SALARY_DB_USER:-salary_app}
+      SALARY_DB_PASSWORD: ${SALARY_DB_PASSWORD:-salary_local}
+      SALARY_DB_NAME: ${SALARY_DB_NAME:-acme_salary}
+      CORS_ORIGINS: http://localhost:8080
+    expose:
+      - "8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
 
 volumes:
   salary_db_data:

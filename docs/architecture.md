@@ -1,15 +1,31 @@
 # Architecture and trade-offs
 
-## Request path
+## Runtime view
 
 ```mermaid
 flowchart LR
-  HR[HR Manager] --> UI[React UI]
-  UI -->|REST, bounded pages| API[FastAPI]
-  API --> DB[(MariaDB / InnoDB)]
-  API -->|Question text and aggregate results only| Gemini[Gemini function calling]
-  Seed[Deterministic seed command] --> DB
+  HR[HR Manager<br/>browser] -->|HTTPS :8080| WEB[nginx<br/>React build]
+  WEB -->|/api/* reverse proxy| API[FastAPI<br/>uvicorn x2]
+  API -->|PyMySQL, parameterised SQL| DB[(MariaDB 11<br/>InnoDB)]
+  API -.->|question text + aggregate results only| GEM[Gemini<br/>function calling]
+  SEED[seed on first start] --> DB
 ```
+
+Docker Compose starts the three containers in order using health checks: `mariadb` (healthy) → `api` (seeds if the database is empty, then serves) → `web`. The browser only ever talks to nginx, so the UI and API share one origin and the browser needs no CORS.
+
+## Backend layering
+
+```
+api/routes.py          HTTP only: query params, status codes, map domain errors → 4xx/5xx
+services/salaries.py   salary lifecycle rules (append-only, effective dating, atomic write)
+services/insights.py   validated read-only insights + the Gemini question flow
+repositories/*.py      all SQL (parameterised); returns plain dicts with JSON-safe numbers
+db.py                  connection/transaction context manager, schema creation
+schemas.py             Pydantic request/response contracts (mirrored in src/api/types.ts)
+seed.py                pure generate() + idempotent seed()
+```
+
+Each layer depends only on the layer below it. Services take no FastAPI types, so they can be unit-tested with fakes.
 
 ## Data model
 
@@ -22,8 +38,8 @@ erDiagram
     string email UK
     string country
     string department
-    string job_title
-    string employment_status
+    string job_title "designation"
+    string employment_status "Active | Inactive"
   }
   SALARY_RECORDS {
     bigint id PK
@@ -31,27 +47,44 @@ erDiagram
     bigint previous_salary_minor
     string previous_currency
     bigint new_salary_minor
-    string currency
-    date effective_date
+    string currency "ISO 4217"
+    date effective_date "unique per employee"
     string reason
     string changed_by
-    string changed_at
+    string changed_at "UTC ISO-8601"
   }
 ```
 
-## Decisions
+The **current salary** is the latest record whose `effective_date` is on or before today (UTC). It is computed in SQL, so a scheduled raise becomes current on its date with no background job.
 
-- **Layer boundaries:** FastAPI routes parse HTTP input and map domain errors; Pydantic schemas validate payloads; services enforce salary lifecycle rules; repositories own SQL; the database module owns connections and schema creation. Local settings load from `.env` using `.env.example` as a template.
+## Frontend
 
-- **MariaDB + InnoDB:** transactions and foreign keys protect salary-record inserts and preserve the employee relationship.
-- **Append-only effective-dated salary records:** each change creates a new record with previous and new values. Future-effective records remain scheduled; reads select the latest record effective on the current UTC date. No background scheduler is needed for a date-based transition.
-- **Integer minor units:** amounts avoid floating-point drift. Every salary record stores an ISO currency code; aggregates remain grouped by currency because no exchange-rate source or valuation policy was specified.
-- **Server-side directory and reports:** search, filters, sorting, pagination, employee distributions, and salary summaries run in MariaDB. The API caps pages at 100 rows and the default is 25.
-- **Natural-language questions:** when `GEMINI_API_KEY` is configured, Gemini function calling selects one of three allowlisted read-only insights. Pydantic validates its arguments and the backend executes the same tested aggregate services used for reporting. Only the question text and computed aggregate result are sent to Gemini; it receives no database access, SQL, or employee-level records. The response includes applied filters and supporting aggregates. Without a key, the UI disables this optional feature.
-- **Model boundary:** free-text answers are phrased by Gemini from verified aggregate results. The UI displays those results for HR review; salary values remain grouped by currency. Text-to-SQL and direct model access to employee records are deliberately excluded.
-- **Small application boundary:** one API and one relational database are sufficient for 10,000 records. Service decomposition would add operational cost without a stated need.
-- **Explicit demo boundary:** authentication, approvals, payroll, imports, and currency conversion are omitted. The employee statuses are `Active` and `Inactive`. Synthetic data only until identity, authorization, secrets, privacy, backups, and hosting requirements are agreed.
+- **Ant Design 6** components with one theme file (`src/theme.ts`), in strict **TypeScript**.
+- **TanStack Query** holds all server state: caching, `keepPreviousData` so tables don't flicker while paging, and query invalidation after a salary write so the directory, drawer and reports refresh together.
+- **The URL holds the view state**: filters, sort, page and the open employee. Views can be shared, and the back button works.
+- `src/api/types.ts` mirrors `backend/schemas.py`, and a single `request()` turns FastAPI error bodies into readable messages.
+- Money stays in **integer minor units** end to end. The UI parses typed amounts as strings (`"1250.50"` → `125050`), never through floats.
+
+## Decisions and trade-offs
+
+| Decision | Why | Trade-off accepted |
+|---|---|---|
+| **Append-only, effective-dated salary records** | Full audit trail. Future raises can be scheduled. Nothing is overwritten. | No back-dating through the API: corrections are new records dated today or later. |
+| **No currency conversion**; every salary statistic is grouped by currency | No FX source or valuation policy was specified, and mixing currencies gives wrong answers. | No single org-wide pay figure. The UI shows one currency at a time and says so. |
+| **Integer minor units** for money | No floating-point drift in storage or arithmetic. | Values are formatted at the edge (`formatMoney`). |
+| **Gemini function calling over three allowlisted tools**, not text-to-SQL | Every number comes from tested code. Arguments are validated by Pydantic, and filter values are checked against real data. Gemini only sees aggregates. | Only questions those tools can answer are supported. Others get a clear "unsupported" error. |
+| **Reports reuse the Gemini tools' `InsightService`** (`/api/insights/*`) | One tested code path. The dashboard answers the same questions without AI. | The AI feature stays optional. |
+| **Percentiles computed in Python** over a narrow projection (salary and currency only) | One implementation that is exact and unit-tested. 10k rows take under 50 ms. | Revisit around 500k+ rows: SQL window functions or a nightly summary table (see `performance.md`). |
+| **Salary sorting only within one country** | Comparing ₹ with $ by raw amount is misleading. | One extra click (choose a country) before sorting by pay. |
+| **Single API + single database** | 10,000 records don't justify more services. | Scale vertically. |
+| **Integration tests on real MariaDB; unit tests with fakes** | SQL behaviour is tested against the real engine, while rules and the AI flow stay fast and deterministic. | Integration tests need `docker compose up -d mariadb`; they skip with a message otherwise. |
+| **Seed pay model** (designation × country market × lognormal noise) | Reports need realistic structure to be meaningful. | Seed-only conversion rates are used to produce plausible local numbers. The app never converts. |
+| **nginx serves the UI and proxies the API** | Same origin, immutable caching of hashed assets, SPA fallback, security headers. | One more container. |
+
+## Out of scope (see requirements §4)
+
+Authentication and RBAC (in production, put this behind corporate SSO), payroll and tax, approvals, imports, FX conversion, and employee self-service.
 
 ## AI-assisted workflow
 
-Codex was used to formalize the requirements, implement the MariaDB API/UI and tests in phases, and review edge cases such as mixed-currency statistics, future-dated salary records, server-side page limits, validation, and history preservation. The requirements and design decisions are reviewable artifacts. Run the documented tests in an environment with Python, npm dependencies, and MariaDB before treating the implementation as verified.
+See [ai-usage.md](ai-usage.md) for which tools were used for what, the prompts, and what was verified by hand.
