@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+# Each reviewer receives a disposable database in their own container.
+runtime=$(mktemp -d)
+mariadb-install-db --no-defaults --datadir="$runtime/db" --auth-root-authentication-method=normal --skip-test-db >/dev/null
+mariadbd --no-defaults --datadir="$runtime/db" --socket="$runtime/mysql.sock" --pid-file="$runtime/mysql.pid" --bind-address=127.0.0.1 --log-error="$runtime/mysql.log" &
+attempt=0
+until mariadb-admin --no-defaults --socket="$runtime/mysql.sock" ping --silent; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 30 ]; then cat "$runtime/mysql.log" >&2; exit 1; fi
+    sleep 1
+done
+mariadb --no-defaults --socket="$runtime/mysql.sock" -u root <<'SQL'
+CREATE DATABASE acme_salary CHARACTER SET utf8mb4;
+CREATE USER 'salary_app'@'127.0.0.1' IDENTIFIED BY 'salary_local';
+GRANT ALL ON acme_salary.* TO 'salary_app'@'127.0.0.1';
+SQL
+python -m backend.seed
+if [ "$1" = jupyter ] || [ "$1" = jupyterhub-singleuser ]; then
+    uvicorn backend.demo:app --host 127.0.0.1 --port 8000 &
+fi
+exec "$@"
