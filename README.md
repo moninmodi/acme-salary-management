@@ -2,6 +2,8 @@
 
 A salary register for an HR manager: browse 10,000 fictional employees, filter and search server-side, compare salary statistics within each currency, record auditable salary changes, and ask supported HR questions in natural language.
 
+[Watch the captioned walkthrough](https://raw.githubusercontent.com/moninmodi/acme-salary-management/main/docs/walkthrough.mp4) · [One-page product brief](docs/requirements.md) · [Architecture and AI workflow](docs/architecture.md)
+
 ## Stack
 
 - React + Vite UI
@@ -12,14 +14,14 @@ The backend separates HTTP routes (`backend/api`), validated schemas (`backend/s
 
 ## Run locally
 
-Requirements: Python 3.11+, Node.js 20+, npm, and Docker Compose.
+Requirements: Python 3.11+, Node.js 22.12+, npm, and Docker Compose.
 
 1. Copy `.env.example` to `.env` and adjust local connection settings if needed. Do not commit `.env` or use its demo credentials outside local development.
 2. Start the database: `docker compose up -d mariadb`. The local compose service creates `acme_salary` and a separate `acme_salary_test` database.
 3. Install Python dependencies: `python -m venv .venv`, activate the environment, then run `python -m pip install -r requirements.txt`.
 4. Seed fictional employee records: `python -m backend.seed` (creates 10,000 records by default; `python -m backend.seed --force` recreates them).
 5. Start the API: `uvicorn backend.main:app --reload`.
-6. In another terminal, install and start the UI: `npm install`, then `npm run dev`. Open the local URL printed by Vite. Vite forwards `/api` requests to FastAPI on port 8000.
+6. In another terminal, install and start the UI: `npm ci`, then `npm run dev`. Open the local URL printed by Vite. Vite forwards `/api` requests to FastAPI on port 8000.
 
 To connect to another MariaDB instance, set `SALARY_DB_HOST`, `SALARY_DB_PORT`, `SALARY_DB_USER`, `SALARY_DB_PASSWORD`, and `SALARY_DB_NAME` before starting the API or seed command. Do not use the compose credentials outside a local demo.
 
