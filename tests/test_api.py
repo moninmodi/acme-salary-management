@@ -5,10 +5,12 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pymysql
 from fastapi.testclient import TestClient
 
 from backend.db import DB_CONFIG, connect, initialize
 from backend.main import app
+from backend.repositories import salaries as salary_repository
 from backend.seed import seed
 from backend.services.insights import GeminiQuestionService, InsightService
 
@@ -170,6 +172,32 @@ class SalaryApiTests(unittest.TestCase):
         self.assertEqual(invalid.status_code, 422)
         self.assertEqual(len(self.client.get("/api/employees/1/history").json()["items"]), 1)
         self.assertEqual(self.client.get("/api/employees/1").json()["salary_minor"], 8_500_000)
+
+    def test_salary_write_holds_employee_lock_until_insert(self):
+        """A second transaction cannot select this employee for a competing write."""
+        insert_record = salary_repository.insert_salary_record
+
+        def probe_then_insert(db, **values):
+            with connect() as competing:
+                with self.assertRaises(pymysql.err.OperationalError) as raised:
+                    competing.execute("SELECT id FROM employees WHERE id = 1 FOR UPDATE NOWAIT")
+                self.assertEqual(raised.exception.args[0], 1205)
+            return insert_record(db, **values)
+
+        today = datetime.now(timezone.utc).date()
+        with patch.object(salary_repository, "insert_salary_record", side_effect=probe_then_insert):
+            first = self.client.post("/api/employees/1/salaries", json={
+                "salary_minor": 9_000_000, "currency": "INR",
+                "effective_date": today.isoformat(), "reason": "Promotion",
+            })
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post("/api/employees/1/salaries", json={
+            "salary_minor": 9_500_000, "currency": "INR",
+            "effective_date": (today + timedelta(days=1)).isoformat(), "reason": "Annual review",
+        })
+        self.assertEqual(second.status_code, 201)
+        history = self.client.get("/api/employees/1/history").json()["items"]
+        self.assertEqual(history[0]["previous_salary_minor"], 9_000_000)
 
     def test_unknown_employee_returns_not_found(self):
         """Return a not-found response when salary history targets no employee."""

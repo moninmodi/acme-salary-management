@@ -9,6 +9,11 @@ def employee_exists(db: DatabaseSession, employee_id: int) -> bool:
     return db.execute("SELECT id FROM employees WHERE id = ?", (employee_id,)).fetchone() is not None
 
 
+def lock_employee(db: DatabaseSession, employee_id: int) -> bool:
+    """Serialize salary writers for an employee, including their first salary."""
+    return db.execute("SELECT id FROM employees WHERE id = ? FOR UPDATE", (employee_id,)).fetchone() is not None
+
+
 def latest_salary_record(db: DatabaseSession, employee_id: int) -> dict | None:
     """Return the latest effective or scheduled salary record for an employee."""
     return db.execute("""SELECT new_salary_minor, currency, effective_date FROM salary_records

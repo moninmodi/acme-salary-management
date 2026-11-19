@@ -38,7 +38,7 @@ class SalaryService:
         try:
             with connect() as db:
                 db.begin()
-                if not salary_repository.employee_exists(db, employee_id):
+                if not salary_repository.lock_employee(db, employee_id):
                     raise SalaryRecordError(404, "Employee not found")
                 previous = salary_repository.latest_salary_record(db, employee_id)
                 if previous and effective_date <= previous["effective_date"]:

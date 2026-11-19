@@ -45,11 +45,17 @@ class EmployeePage(BaseModel):
     as_of: date
 
 
-class EmployeeDistribution(BaseModel):
-    """Employee count for a country or department category."""
+class CountryDistribution(BaseModel):
+    """Employee count for one country."""
 
-    country: str | None = None
-    department: str | None = None
+    country: str
+    employee_count: int
+
+
+class DepartmentDistribution(BaseModel):
+    """Employee count for one department."""
+
+    department: str
     employee_count: int
 
 
@@ -69,8 +75,8 @@ class DashboardSummary(BaseModel):
     """Employee distribution and currency-specific compensation summary."""
 
     total_employees: int
-    by_country: list[EmployeeDistribution]
-    by_department: list[EmployeeDistribution]
+    by_country: list[CountryDistribution]
+    by_department: list[DepartmentDistribution]
     salary_by_currency: list[CurrencySalarySummary]
 
 
