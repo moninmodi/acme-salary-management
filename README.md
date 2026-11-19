@@ -4,6 +4,12 @@ A salary register for an HR manager: browse 10,000 fictional employees, filter a
 
 [Watch the captioned walkthrough](https://raw.githubusercontent.com/moninmodi/acme-salary-management/main/docs/walkthrough.mp4) · [One-page product brief](docs/requirements.md) · [Architecture and AI workflow](docs/architecture.md)
 
+## Try the assessment
+
+[Launch a fresh demo on Binder](https://mybinder.org/v2/gh/moninmodi/acme-salary-management/main?urlpath=proxy%2F8000%2F). The first launch builds the image. Each session starts with 10,000 fictional employees and has its own database. Changes last for that session.
+
+To run the same image locally, use `docker build -f binder/Dockerfile -t acme-salary-demo .` followed by `docker run --rm -p 127.0.0.1:8000:8000 acme-salary-demo`. Open <http://localhost:8000>.
+
 ## Stack
 
 - React + Vite UI

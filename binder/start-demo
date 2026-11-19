@@ -16,7 +16,7 @@ CREATE USER 'salary_app'@'127.0.0.1' IDENTIFIED BY 'salary_local';
 GRANT ALL ON acme_salary.* TO 'salary_app'@'127.0.0.1';
 SQL
 python -m backend.seed
-if [ "$1" = jupyter ] || [ "$1" = jupyterhub-singleuser ]; then
+if [ "$1" != uvicorn ]; then
     uvicorn backend.demo:app --host 127.0.0.1 --port 8000 &
 fi
 exec "$@"
