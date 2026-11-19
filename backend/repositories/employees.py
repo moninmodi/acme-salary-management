@@ -152,6 +152,8 @@ def get_dashboard_summary(
         for sample_currency, salary_values in values_by_currency.items()
     }
     for row in by_currency:
+        row["payroll_minor"] = int(row["payroll_minor"])
+        row["average_minor"] = float(row["average_minor"])
         row["median_minor"] = median_by_currency.get(row["currency"])
     return {
         "total_employees": total,
